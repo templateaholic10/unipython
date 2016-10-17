@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-# gspplot$B%b%8%e!<%k(B
+# gspplotモジュール
 
-$B%0%i%U?.9f$rIA2h$9$k4X?t72$r<}$a$?%b%8%e!<%k!%(B
-$B%0%i%U$O(Bnetworkx.Graph$B$GI=8=$9$k!%(B
+グラフ信号を描画する関数群を収めたモジュール．
+グラフはnetworkx.Graphで表現する．
 """
 
 import numpy as np
@@ -20,13 +20,13 @@ _bar_color = colors.cnames['red']
 
 def colorplot(G, f, ax=None, pos=None, colorbar=True, **args):
     """
-    $B%0%i%U?.9f$rD:E@$N?'$GI=$9IA2h4X?t(B
+    グラフ信号を頂点の色で表す描画関数
     @param G networkx.Graph
-    @param f $B?.9f%Y%/%H%k(B
-    @param ax axes$B!%$J$1$l$P:n@.(B
-    @param pos $B%0%i%U$N%l%$%"%&%H!%$J$1$l$P(Bspring_layout$B$G:n@.(B
-    @param colorbar $B%+%i!<%P!<$NI=<(HsI=<(!%%G%U%)%k%H$OI=<((B
-    @param **args draw_networkx_nodes$B!$(Bdraw_networkx_edges$B$N0z?t(B
+    @param f 信号ベクトル
+    @param ax axes．なければ作成
+    @param pos グラフのレイアウト．なければspring_layoutで作成
+    @param colorbar カラーバーの表示非表示．デフォルトは表示
+    @param **args draw_networkx_nodes，draw_networkx_edgesの引数
     @return axes
     """
     if ax is None:
@@ -34,14 +34,14 @@ def colorplot(G, f, ax=None, pos=None, colorbar=True, **args):
     if pos is None:
         pos = nx.spring_layout(G)
 
-    # $B%0%i%U$NIA2h(B
+    # グラフの描画
     nodes = nx.draw_networkx_nodes(G, pos, ax=ax, cmap=_colormap, node_color=f, **args)
     if 'edge_color' in args:
         nx.draw_networkx_edges(G, pos, ax=ax, **args)
     else:
         nx.draw_networkx_edges(G, pos, ax=ax, edge_color=_edge_color, **args)
 
-    # $B%+%i!<%P!<$NIA2h(B
+    # カラーバーの描画
     if colorbar:
         plt.colorbar(nodes, ax=ax)
 
@@ -51,12 +51,12 @@ def colorplot(G, f, ax=None, pos=None, colorbar=True, **args):
 
 def barplot(G, f, ax=None, pos=None, **args):
     """
-    $B%0%i%U?.9f$rD:E@>e$N%P!<$GI=$9IA2h4X?t(B
+    グラフ信号を頂点上のバーで表す描画関数
     @param G networkx.Graph
-    @param f $B?.9f%Y%/%H%k(B
-    @param ax axes3d$B!%$J$1$l$P:n@.(B
-    @param pos $B%0%i%U$N%l%$%"%&%H!%$J$1$l$P(Bspring_layout$B$G:n@.(B
-    @param **args plot$B$N0z?t(B
+    @param f 信号ベクトル
+    @param ax axes3d．なければ作成
+    @param pos グラフのレイアウト．なければspring_layoutで作成
+    @param **args plotの引数
     @return axes
     """
     if ax is None:
@@ -64,7 +64,7 @@ def barplot(G, f, ax=None, pos=None, **args):
     if pos is None:
         pos = nx.spring_layout(G)
 
-    # $B%0%i%U$NIA2h(B
+    # グラフの描画
     for edge in G.edges():
         u, v = edge
         if 'color' in args:
@@ -72,7 +72,7 @@ def barplot(G, f, ax=None, pos=None, **args):
         else:
             ax.plot((pos[u][0], pos[v][0]), (pos[u][1], pos[v][1]), zs=0, color=_edge_color, **args)
 
-    # $B%P!<$NIA2h(B
+    # バーの描画
     for i, node in enumerate(G.nodes()):
         if 'color' in args:
             ax.plot([pos[node][0]]*2, [pos[node][1]]*2, zs=[0, f[i]], **args)
@@ -85,17 +85,17 @@ def barplot(G, f, ax=None, pos=None, **args):
 
 def spectrumplot(l, F, ax=None, **args):
     """
-    $B%0%i%U?.9f$N%9%Z%/%H%k$NIA2h4X?t(B
-    @param l $B<~GH?t$N%j%9%H(B
-    @param F $B%9%Z%/%H%k%Y%/%H%k(B
-    @param ax axes$B!%$J$1$l$P:n@.(B
-    @param **args plot$B$N0z?t(B
+    グラフ信号のスペクトルの描画関数
+    @param l 周波数のリスト
+    @param F スペクトルベクトル
+    @param ax axes．なければ作成
+    @param **args plotの引数
     @return axes
     """
     if ax is None:
         ax = plt.subplot(111)
 
-    # $BIA2h(B
+    # 描画
     ax.plot(l, F, **args)
 
     ax.set_xlim(min(l), max(l))
