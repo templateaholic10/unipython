@@ -73,7 +73,7 @@ def barplot(G, f, ax=None, pos=None, **args):
             ax.plot((pos[u][0], pos[v][0]), (pos[u][1], pos[v][1]), zs=0, color=_edge_color, **args)
 
     # バーの描画
-    for i, node in enumerate(G.nodes()):
+    for i, node in enumerate(G.nodes().sorted()):
         if 'color' in args:
             ax.plot([pos[node][0]]*2, [pos[node][1]]*2, zs=[0, f[i]], **args)
         else:

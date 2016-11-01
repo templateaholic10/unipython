@@ -3,13 +3,21 @@ my nice python utilities
 
 ## oshinagaki
 
-about Graph Signal Processing(GSP)
+Utility
+
+- exnumpy
+
+Graph Signal Processing(GSP)
 
 - gfourier.py
 - gspplot.py
 - sampleGraph.py
 
-about Audio Signal Processing(ASP)
+Audio Signal Processing(ASP)
 
 - exwave.py
 - dtm.py
+
+Data Analysis(DA)
+
+- EnsambleFilter.py
