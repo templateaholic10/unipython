@@ -5,7 +5,7 @@ my nice python utilities
 
 Utility
 
-- exnumpy
+- exnumpy.py
 
 Graph Signal Processing(GSP)
 
@@ -21,3 +21,9 @@ Audio Signal Processing(ASP)
 Data Analysis(DA)
 
 - EnsambleFilter.py
+- sampleModel.py
+
+Image Processing(IP)
+
+- dintegral.py
+- polypaint.py

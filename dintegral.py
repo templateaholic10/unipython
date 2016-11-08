@@ -71,8 +71,9 @@ def line_integral2d(f, start, end):
         # 1. 線分は列内で水平線をまたがないが
         # 2. 線分を延長すると列内で水平線をまたぐ
         # 時，列の左端との交点を含む行と線分の通る行は異なる．
-        # よって列の右端との交点を含む行とする
-        rows[0] = int(grad*(cols_nocrossH[0]+1)+yic)
+        # この場合は線分の通る行を左端点の属する行とする
+        if len(cols_nocrossH) > 0 and cols_nocrossH[0] == col0:
+            rows[0] = row0
         integral_nocrossH = f[rows, cols_nocrossH].sum()
 
         # (3-3)端の列で足しすぎた分
@@ -107,8 +108,9 @@ def line_integral2d(f, start, end):
         # 1. 線分は行内で垂直線をまたがないが
         # 2. 線分を延長すると行内で垂直線をまたぐ
         # 時，行の下端との交点を含む列と線分の通る列は異なる．
-        # よって行の上端との交点を含む列とする
-        cols[0] = int(grad*(rows_nocrossV[0]+1)+xic)
+        # この場合は線分の通る列を下端点の属する列とする
+        if len(rows_nocrossV) > 0 and rows_nocrossV[0] == row0:
+            cols[0] = col0
         integral_nocrossV = f[rows_nocrossV, cols].sum()
 
         # (4-3)端の行で足しすぎた分
@@ -231,7 +233,7 @@ def graph_integral2d_grad(f, G, pos):
 
     return retval
 
-def graph_fit(f, G, pos0):
+def graph_fit(f, G, pos0, fixed=None):
     '''
     ２次元標本点上のスカラー場に，無向グラフの埋め込みをフィッティングする関数．
     最適化問題
@@ -240,19 +242,42 @@ def graph_fit(f, G, pos0):
     @param f: np.ndarray((N, M)) ２次元標本点上のスカラー場＝矩形[0, M)x[0, N)上のスカラー場
     @param G: networkx.Graph 0-originの整数をノード名とする無向グラフ
     @param pos0: np.ndarray((V, 2)) Gの頂点の座標の初期値
+    @param fixed: np.ndarray((V, 2), dtype=bool) Gの頂点の座標を固定するかどうか
     @return 最終的な頂点の座標とscipy.optimize.OptimizeResultオブジェクトの組
     '''
+    if fixed is None:
+        fixed = np.full_like(pos0, False, dtype=bool)
+
     N, M = f.shape
     V = len(G.nodes())
 
     # 目的関数
-    func = lambda x, sign=1.0: sign*graph_integral2d(f, G, x.reshape((V, 2)))
+    def func(x, sign=1):
+        pos = np.zeros_like(pos0)
+        pos[fixed] = pos0[fixed] # 固定された座標
+        pos[np.logical_not(fixed)] = x # 固定されていない座標
+        return sign*graph_integral2d(f, G, pos)
+
+    #func = lambda x, sign=1.0: sign*graph_integral2d(f, G, x.reshape((V, 2)))
     # 勾配ベクトル
-    func_grad = lambda x, sign=1.0: sign*graph_integral2d_grad(f, G, x.reshape((V, 2))).reshape(V*2)
-    # 制約条件
+    def func_grad(x, sign=1):
+        pos = np.zeros_like(pos0)
+        pos[fixed] = pos0[fixed] # 固定された座標
+        pos[np.logical_not(fixed)] = x # 固定されていない座標
+        return sign*graph_integral2d_grad(f, G, pos)[np.logical_not(fixed)]
+
+    #func_grad = lambda x, sign=1.0: sign*graph_integral2d_grad(f, G, x.reshape((V, 2))).reshape(V*2)
+    # 制約条件 Vx(x, y)x(min, max)
     eps = 1e-6
-    bounds = [(0, M-eps), (0, N-eps)]*V
+    bounds = np.zeros((V, 2, 2))
+    bounds[:, :, 0] = 0
+    bounds[:, 0, 1] = M-eps
+    bounds[:, 1, 1] = N-eps
 
-    res = opt.minimize(func, pos0.reshape(V*2), args=(-1, ), jac=func_grad, bounds=bounds, method='SLSQP', options={'disp': True})
+    res = opt.minimize(func, pos0[np.logical_not(fixed)], args=(-1, ), jac=func_grad, bounds=bounds[np.logical_not(fixed)], method='SLSQP', options={'disp': True})
 
-    return res.x.reshape((V, 2)), res
+    pos = np.zeros_like(pos0)
+    pos[fixed] = pos0[fixed] # 固定された座標
+    pos[np.logical_not(fixed)] = res.x # 固定されていない座標
+
+    return pos, res
