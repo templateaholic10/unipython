@@ -31,18 +31,20 @@ class Canvas(object):
     width = 3 # 辺の幅
     edge_color = (0, 0, 0) # 辺の色
 
-    def __init__(self, filename=None, size=None):
+    def __init__(self, filename=None, size=None, G=None, pos=None):
         '''
         コンストラクタ
         @param filename 背景画像．なければ白背景になる
         @param size 背景サイズ
+        @param G 無向グラフ
+        @param pos 頂点の座標
         '''
         # 背景画像の設定
         if filename is None:
             # 背景画像を指定しない時，白紙にする
             if size is None:
                 size = Canvas.__MAXSIZE
-            self.background = np.zeros((size[1], size[0]))
+            self.background = np.full((size[1], size[0], 3), 255, dtype=np.uint8)
             self.redratio = 1
         else:
             self.background = cv2.imread(filename, 1)
@@ -55,9 +57,14 @@ class Canvas(object):
             self.background = cv2.resize(self.background, None, fx=self.redratio, fy=self.redratio)
 
         # グラフとその配置
-        self.G = nx.Graph()
-        self.pos = dict()
-        self.nth_vertex = 0
+        if G is None or pos is None:
+            self.G = nx.Graph()
+            self.pos =dict()
+            self.nth_vertex = 0
+        else:
+            self.G = G
+            self.pos = {v: (pos[i]*self.redratio).astype(int) for i, v in enumerate(self.G.nodes())}
+            self.nth_vertex = len(self.G.nodes())
 
         # マウスイベント用の変数
         self.select = None
@@ -185,27 +192,39 @@ class Canvas(object):
 
         cv2.destroyAllWindows()
 
-        return self.G, (np.array([self.pos[v] for v in self.G.nodes()])/self.redratio).astype(int)
+        # 頂点座標は原寸に戻してnp.arrayにする
+        pos = np.array([self.pos[v] for v in self.G.nodes()])/self.redratio
+        # グラフの頂点番号は詰める
+        G = nx.convert_node_labels_to_integers(self.G)
+        return G, pos
 
 def main():
     '''
     モジュールを実行した時のエントリポイント．
     対話的にグラフ配置を作成し，networkx.Graphとposのタプルをpickleで保存する．
 
-    python polypaint.py (background filename)
+    python polypaint.py (background filename) (pickle filename)
 
     - background filename
         背景画像．指定しなければ白背景になる
+    - pickle filename
+        networkx.Graphとposのタプルのpickle．なければ新規作成する
     '''
-    filename = None if len(sys.argv) <= 1 else sys.argv[1]
+    bg_filename = None if len(sys.argv) <= 1 else sys.argv[1]
+    if len(sys.argv) <= 2:
+        G0 = pos0 = None
+    else:
+        pickle_filename = sys.argv[2]
+        with open(pickle_filename, 'rb') as fin:
+            G0, pos0 = pickle.load(fin)
 
-    canvas = Canvas(filename)
+    canvas = Canvas(bg_filename, G=G0, pos=pos0)
     G, pos = canvas.run()
 
-    if filename is None:
+    if bg_filename is None:
         foutname = 'graph.pickle'
     else:
-        foutname = 'graph_on_'+os.path.splitext(os.path.basename(filename))[0]+'.pickle'
+        foutname = 'graph_on_'+os.path.splitext(os.path.basename(bg_filename))[0]+'.pickle'
 
     with open(foutname, 'wb') as fout:
         pickle.dump((G, pos), fout)
