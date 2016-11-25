@@ -233,7 +233,7 @@ def graph_integral2d_grad(f, G, pos):
 
     return retval
 
-def graph_fit(f, G, pos0, fixed=None):
+def graph_fit(f, G, pos0, fixed=None, constraints=[]):
     '''
     ２次元標本点上のスカラー場に，無向グラフの埋め込みをフィッティングする関数．
     最適化問題
@@ -243,7 +243,18 @@ def graph_fit(f, G, pos0, fixed=None):
     @param G: networkx.Graph 0-originの整数をノード名とする無向グラフ
     @param pos0: np.ndarray((V, 2)) Gの頂点の座標の初期値
     @param fixed: np.ndarray((V, 2), dtype=bool) Gの頂点の座標を固定するかどうか
+    @param constraints: 制約辞書のリスト
     @return 最終的な頂点の座標とscipy.optimize.OptimizeResultオブジェクトの組
+
+    制約辞書の例
+    - 楕円上制約
+    {
+        'type': 'on_ellipse',
+        'center': [center position],
+        'a': [param a],
+        'b': [param b],
+        'vertex': [vertexes on ellipse]
+    }
     '''
     if fixed is None:
         fixed = np.full_like(pos0, False, dtype=bool)
@@ -274,7 +285,28 @@ def graph_fit(f, G, pos0, fixed=None):
     bounds[:, 0, 1] = M-eps
     bounds[:, 1, 1] = N-eps
 
-    res = opt.minimize(func, pos0[np.logical_not(fixed)], args=(-1, ), jac=func_grad, bounds=bounds[np.logical_not(fixed)], method='SLSQP', options={'disp': True})
+    # その他の制約条件
+    cons = []
+    for constraint in constraints:
+        if constraint['type'] == 'on_ellipse':
+            # 楕円上制約の場合
+            a = constraint['a']
+            b = constraint['b']
+            posid_to_xid = np.cumsum(np.logical_not(fixed.ravel()))
+            for v in constraint['vertex']:
+                con = {'type': 'eq'}
+                xid = posid_to_xid[2*v]
+                yid = posid_to_xid[2*v+1]
+                con['fun'] = lambda x: x[xid]**2/a**2+x[yid]**2/b**2-1
+                def cons_grad(x):
+                    retval = np.zeros_like(x)
+                    retval[xid] = 2*x[xid]/a**2
+                    retval[yid] = 2*x[yid]/b**2
+                    return retval
+                con['jac'] = cons_grad
+                cons.append(con)
+
+    res = opt.minimize(func, pos0[np.logical_not(fixed)], args=(-1, ), jac=func_grad, bounds=bounds[np.logical_not(fixed)], constraints=cons, method='SLSQP', options={'disp': True})
 
     pos = np.zeros_like(pos0)
     pos[fixed] = pos0[fixed] # 固定された座標
