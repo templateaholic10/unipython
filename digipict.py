@@ -9,7 +9,8 @@ import numpy as np
 
 def digiline(P, Q):
     '''
-    デジタル線分関数
+    細いデジタル線分関数．始点や終点が線分に乗らないことがある．
+    素朴に補正すると線分が連結でなくなってしまう
     @param P: (2, ) 始点
     @param Q: (2, ) 終点
     @return np.array((L, 2)) 標本点たち
@@ -25,7 +26,6 @@ def digiline(P, Q):
 
         cols = np.arange(col1, col2+1)
         rows = ((cols+1/2)*(y2-y1)/(x2-x1)+(x2*y1-x1*y2)/(x2-x1)).astype(int)
-        rows[0], rows[-1] = row1, row2
     else:
         # 立った線分
         if P[1] > Q[1]:
@@ -37,7 +37,5 @@ def digiline(P, Q):
 
         rows = np.arange(row1, row2+1)
         cols = ((rows+1/2)*(x2-x1)/(y2-y1)+(x1*y2-x2*y1)/(y2-y1)).astype(int)
-        cols[0], cols[-1] = col1, col2
 
     return np.stack((cols, rows), axis=1)
-

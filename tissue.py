@@ -129,4 +129,4 @@ def openpolyvolume(pos, background):
         canvas[homs[:, 1], homs[:, 0]] = 1
         stack += [hom for hom in homs]
 
-    return (canvas==1).sum()
+    return (canvas == 1).sum()
