@@ -290,19 +290,20 @@ def graph_fit(f, G, pos0, fixed=None, constraints=[]):
     for constraint in constraints:
         if constraint['type'] == 'on_ellipse':
             # 楕円上制約の場合
+            center = constraint['center']
             a = constraint['a']
             b = constraint['b']
-            posid_to_xid = np.cumsum(np.logical_not(fixed.ravel()))
+            posid_to_xid = np.cumsum(np.logical_not(fixed.ravel()))-1
             for v in constraint['vertex']:
                 con = {'type': 'eq'}
                 xid = posid_to_xid[2*v]
                 yid = posid_to_xid[2*v+1]
-                con['fun'] = lambda x: x[xid]**2/a**2+x[yid]**2/b**2-1
-                def cons_grad(x):
+                con['fun'] = lambda x, sign=1: sign*((x[xid]-center[0])**2/a**2+(x[yid]-center[1])**2/b**2-1)
+                def cons_grad(x, sign=1):
                     retval = np.zeros_like(x)
-                    retval[xid] = 2*x[xid]/a**2
-                    retval[yid] = 2*x[yid]/b**2
-                    return retval
+                    retval[xid] = 2*(x[xid]-center[0])/a**2
+                    retval[yid] = 2*(x[yid]-center[1])/b**2
+                    return sign*retval
                 con['jac'] = cons_grad
                 cons.append(con)
 

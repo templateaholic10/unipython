@@ -115,6 +115,11 @@ def openpolyvolume(pos, background):
     # 多角辺上の点を非活性化する．中点の内側をシードとして活性化する
     for v in range(V-1):
         line = digipict.digiline(pos[v], pos[v+1])
+        # デジタル線分が線分の外に出るとき，端点がキャンバス外に出る場合がある
+        if not(0 <= line[0][0] < M and 0 <= line[0][1] < N):
+            line = line[1:]
+        if not(0 <= line[-1][0] < M and 0 <= line[-1][1] < N):
+            line = line[:-1]
         canvas[line[:, 1], line[:, 0]] = -1
         seed = line[len(line)//2]+np.array((1 if pos[v][1]>pos[v+1][1] else -1, 1 if pos[v][0]<pos[v+1][0] else -1))
         canvas[seed[1], seed[0]] = 1
