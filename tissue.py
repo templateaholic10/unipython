@@ -108,17 +108,80 @@ def openpolyvolume(pos, background):
     @return 面積
     '''
     canvas = np.full_like(background, 0, dtype=np.int8)
-    N, M = canvas.shape
+    Rows, Cols = canvas.shape
     stack = []
     V, _ = pos.shape
+
+    # 最初と最後の多角辺はキャンバスの端まで非活性化する
+    eps = 1e-6
+
+    P, Q = pos[1], pos[0]
+    dx, dy = (Q-P).tolist()
+    if dx >= 0 and dy >= 0:
+        if dx/(Cols-P[0]) > dy/(Rows-P[1]):
+            R = np.array((Cols-eps, P[1]+(Cols-eps-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(Rows-eps-P[1])*dx/dy, Rows-eps))
+    elif dx >= 0 and dy < 0:
+        if dx/(Cols-P[0]) > dy/(0-P[1]):
+            R = np.array((Cols-eps, P[1]+(Cols-eps-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(0-P[1])*dx/dy, 0))
+    elif dx <  0 and dy >= 0:
+        if dx/(0-P[0]) > dy/(Rows-P[1]):
+            R = np.array((0, P[1]+(0-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(Rows-eps-P[1])*dx/dy, Rows-eps))
+    else:
+        if dx/(0-P[0]) > dy/(0-P[1]):
+            R = np.array((0, P[1]+(0-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(0-P[1])*dx/dy, 0))
+
+    line = digipict.digiline(P, R)
+    if not(0 <= line[0][0] < Cols and 0 <= line[0][1] < Rows):
+        line = line[1:]
+    if not(0 <= line[-1][0] < Cols and 0 <= line[-1][1] < Rows):
+        line = line[:-1]
+    canvas[line[:, 1], line[:, 0]] = -1
+
+    P, Q = pos[-2], pos[-1]
+    dx, dy = (Q-P).tolist()
+    if dx >= 0 and dy >= 0:
+        if dx/(Cols-P[0]) > dy/(Rows-P[1]):
+            R = np.array((Cols-eps, P[1]+(Cols-eps-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(Rows-eps-P[1])*dx/dy, Rows-eps))
+    elif dx >= 0 and dy < 0:
+        if dx/(Cols-P[0]) > dy/(0-P[1]):
+            R = np.array((Cols-eps, P[1]+(Cols-eps-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(0-P[1])*dx/dy, 0))
+    elif dx <  0 and dy >= 0:
+        if dx/(0-P[0]) > dy/(Rows-P[1]):
+            R = np.array((0, P[1]+(0-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(Rows-eps-P[1])*dx/dy, Rows-eps))
+    else:
+        if dx/(0-P[0]) > dy/(0-P[1]):
+            R = np.array((0, P[1]+(0-P[0])*dy/dx))
+        else:
+            R = np.array((P[0]+(0-P[1])*dx/dy, 0))
+
+    line = digipict.digiline(P, R)
+    if not(0 <= line[0][0] < Cols and 0 <= line[0][1] < Rows):
+        line = line[1:]
+    if not(0 <= line[-1][0] < Cols and 0 <= line[-1][1] < Rows):
+        line = line[:-1]
+    canvas[line[:, 1], line[:, 0]] = -1
 
     # 多角辺上の点を非活性化する．中点の内側をシードとして活性化する
     for v in range(V-1):
         line = digipict.digiline(pos[v], pos[v+1])
         # デジタル線分が線分の外に出るとき，端点がキャンバス外に出る場合がある
-        if not(0 <= line[0][0] < M and 0 <= line[0][1] < N):
+        if not(0 <= line[0][0] < Cols and 0 <= line[0][1] < Rows):
             line = line[1:]
-        if not(0 <= line[-1][0] < M and 0 <= line[-1][1] < N):
+        if not(0 <= line[-1][0] < Cols and 0 <= line[-1][1] < Rows):
             line = line[:-1]
         canvas[line[:, 1], line[:, 0]] = -1
         seed = line[len(line)//2]+np.array((1 if pos[v][1]>pos[v+1][1] else -1, 1 if pos[v][0]<pos[v+1][0] else -1))
@@ -128,7 +191,7 @@ def openpolyvolume(pos, background):
     offsets = np.array(((0, -1), (0, 1), (-1, 0), (1, 0)))
     while stack:
         nbrs = stack.pop() + offsets # 4 neighbors
-        nbrs = nbrs[(nbrs[:, 0] >= 0) & (nbrs[:, 0] < M) & (nbrs[:, 1] >= 0) & (nbrs[:, 1] < N)]
+        nbrs = nbrs[(nbrs[:, 0] >= 0) & (nbrs[:, 0] < Cols) & (nbrs[:, 1] >= 0) & (nbrs[:, 1] < Rows)]
         homs = nbrs[(canvas[nbrs[:, 1], nbrs[:, 0]] == 0) & (background[nbrs[:, 1], nbrs[:, 0]])]
 
         canvas[homs[:, 1], homs[:, 0]] = 1
