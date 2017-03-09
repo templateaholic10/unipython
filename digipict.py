@@ -15,6 +15,8 @@ def digiline(P, Q):
     @param Q: (2, ) 終点
     @return np.array((L, 2)) 標本点たち
     '''
+    if (P==Q).all():
+        return P.astype(int)[np.newaxis, :]
     if abs(Q[0]-P[0]) > abs(Q[1]-P[1]):
         # 寝た線分
         if P[0] > Q[0]:
