@@ -63,8 +63,7 @@ def barplot(G, f, ax=None, pos=None, with_labels=False, edge_color=None, bar_col
     if bar_color is None:
         bar_color = colors.cnames['red']
     # グラフの描画
-    for edge in G.edges():
-        u, v = edge
+    for u, v in G.edges_iter():
         ax.plot((pos[u][0], pos[v][0]), (pos[u][1], pos[v][1]), zs=0, color=edge_color, **args)
     # バーの描画
     for i, node in enumerate(sorted(G.nodes())):

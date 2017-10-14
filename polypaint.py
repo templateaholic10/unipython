@@ -17,7 +17,7 @@ class Canvas(object):
     '''
     対話的なグラフ配置環境クラス
     '''
-    __MAXSIZE = (1000, 700) # 最大背景サイズ
+    __MAXSIZE = (1200, 850) # 最大背景サイズ
     __NBHD = 10 # 近傍の半径
 
     radius = 5 # 頂点の半径
@@ -45,25 +45,25 @@ class Canvas(object):
             if size is None:
                 size = Canvas.__MAXSIZE
             self.background = np.full((size[1], size[0], 3), 255, dtype=np.uint8)
-            self.redratio = 1
+            self.redratio = 1.
         else:
             self.background = cv2.imread(filename, 1)
             size_org = (self.background.shape[1], self.background.shape[0])
             if size_org[0] > Canvas.__MAXSIZE[0] or size_org[1] > Canvas.__MAXSIZE[1]:
                 # 縮小
                 self.redratio = min(Canvas.__MAXSIZE[0]/size_org[0], Canvas.__MAXSIZE[1]/size_org[1]) # 縮小率
+                self.background = cv2.resize(self.background, None, fx=self.redratio, fy=self.redratio)
             else:
-                self.redratio = 1
-            self.background = cv2.resize(self.background, None, fx=self.redratio, fy=self.redratio)
+                self.redratio = 1.
 
         # グラフとその配置
         if G is None or pos is None:
             self.G = nx.Graph()
-            self.pos =dict()
+            self.pos = dict()
             self.nth_vertex = 0
         else:
             self.G = G
-            self.pos = {v: (pos[i]*self.redratio).astype(int) for i, v in enumerate(self.G.nodes())}
+            self.pos = {v: pos[i]*self.redratio for i, v in enumerate(self.G.nodes())}
             self.nth_vertex = len(self.G.nodes())
 
         # マウスイベント用の変数
@@ -75,8 +75,8 @@ class Canvas(object):
         '''
         マウスイベント時の処理
         @param event イベントの種類
-        @param x x座標
-        @param y y座標
+        @param x x座標（整数）
+        @param y y座標（整数）
         @param flags イベントに付随するフラグ．ビットマスクで取り出す
         @param param その他のパラメータ
         '''
@@ -90,7 +90,7 @@ class Canvas(object):
                 # (1-1)ホバー中でない時
                 # 新しい点を作成してホールドする
                 self.G.add_node(self.nth_vertex)
-                self.pos[self.nth_vertex] = P
+                self.pos[self.nth_vertex] = P.astype(np.float64)
                 self.hold = self.nth_vertex
                 self.nth_vertex += 1
             else:
@@ -111,7 +111,7 @@ class Canvas(object):
                 # (2-2)選択中だがホバー中でない時
                 # 新しい点を作成して線を引き，ホールドする
                 self.G.add_node(self.nth_vertex)
-                self.pos[self.nth_vertex] = P
+                self.pos[self.nth_vertex] = P.astype(np.float64)
                 self.hold = self.nth_vertex
                 self.nth_vertex += 1
                 self.G.add_edge(self.select, self.hold)
@@ -135,7 +135,7 @@ class Canvas(object):
 
             if self.hold is not None:
                 # ホールド中なら移動する
-                self.pos[self.hold] = P
+                self.pos[self.hold] = P.astype(np.float64)
             elif self.pos:
                 # ホールド中でなく，頂点が存在する時ホバー判定する
                 v_closest, P_closest = min(self.pos.items(), key=lambda x: np.linalg.norm(P-x[1]))
@@ -159,19 +159,19 @@ class Canvas(object):
 
             # 辺の描画
             for edge in self.G.edges():
-                P1, P2 = self.pos[edge[0]], self.pos[edge[1]]
+                P1, P2 = self.pos[edge[0]].astype(int), self.pos[edge[1]].astype(int)
                 cv2.line(img, (P1[0], P1[1]), (P2[0], P2[1]), Canvas.edge_color, Canvas.width)
 
             # 頂点の描画
             for v in self.pos:
                 if v == self.hover:
-                    cv2.circle(img, (self.pos[v][0], self.pos[v][1]), Canvas.hover_radius, Canvas.hover_vertex_color, -1)
+                    cv2.circle(img, (self.pos[v][0].astype(int), self.pos[v][1].astype(int)), Canvas.hover_radius, Canvas.hover_vertex_color, -1)
                 elif v == self.hold:
-                    cv2.circle(img, (self.pos[v][0], self.pos[v][1]), Canvas.hold_radius, Canvas.hold_vertex_color, -1)
+                    cv2.circle(img, (self.pos[v][0].astype(int), self.pos[v][1].astype(int)), Canvas.hold_radius, Canvas.hold_vertex_color, -1)
                 elif v == self.select:
-                    cv2.circle(img, (self.pos[v][0], self.pos[v][1]), Canvas.select_radius, Canvas.select_vertex_color, -1)
+                    cv2.circle(img, (self.pos[v][0].astype(int), self.pos[v][1].astype(int)), Canvas.select_radius, Canvas.select_vertex_color, -1)
                 else:
-                    cv2.circle(img, (self.pos[v][0], self.pos[v][1]), Canvas.radius, Canvas.vertex_color, -1)
+                    cv2.circle(img, (self.pos[v][0].astype(int), self.pos[v][1].astype(int)), Canvas.radius, Canvas.vertex_color, -1)
 
             # 表示
             cv2.imshow('PolyPaint', img)
@@ -203,25 +203,29 @@ def main():
     モジュールを実行した時のエントリポイント．
     対話的にグラフ配置を作成し，networkx.Graphとposのタプルをpickleで保存する．
 
-    python polypaint.py (background filename) (pickle filename)
+    python polypaint.py (background filename) (input filename) (output filename)
 
     - background filename
         背景画像．指定しなければ白背景になる
-    - pickle filename
+    - input filename
+        networkx.Graphとposのタプルのpickle．なければ新規作成する
+    - output filename
         networkx.Graphとposのタプルのpickle．なければ新規作成する
     '''
     bg_filename = None if len(sys.argv) <= 1 else sys.argv[1]
-    if len(sys.argv) <= 2:
+    if len(sys.argv)<=2:
         G0 = pos0 = None
     else:
-        pickle_filename = sys.argv[2]
-        with open(pickle_filename, 'rb') as fin:
+        finname = sys.argv[2]
+        with open(finname, 'rb') as fin:
             G0, pos0 = pickle.load(fin)
 
     canvas = Canvas(bg_filename, G=G0, pos=pos0)
     G, pos = canvas.run()
 
-    if bg_filename is None:
+    if len(sys.argv)>3:
+        foutname = sys.argv[3]
+    elif bg_filename is None:
         foutname = 'graph.pickle'
     else:
         foutname = 'graph_on_'+os.path.splitext(os.path.basename(bg_filename))[0]+'.pickle'
