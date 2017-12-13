@@ -7,23 +7,24 @@ Utility
 
 - exnumpy.py
 
-Graph Signal Processing(GSP)
+Graph Signal Processing (GSP)
 
 - gfourier.py
 - gspplot.py
 - sampleGraph.py
 
-Audio Signal Processing(ASP)
+Audio Signal Processing (ASP)
 
 - exwave.py
 - dtm.py
+- pyBMS.py
 
-Data Analysis(DA)
+Data Assimilation (DA)
 
 - EnsambleFilter.py
 - sampleModel.py
 
-Image Processing(IP)
+Image Processing (IP)
 
 - dintegral.py
 - polypaint.py
