@@ -139,173 +139,98 @@ class MRF(object):
 
         return retval.reshape((length, *self.size))
 
-class HMRF(object):
+class DiscreteMRF_Gaussian_Model(object):
     '''
-    Hidden Markov Random Fieldクラス．
-    マルコフ確率場はdiscrete colors，観測はGaussian emission
+    離散マルコフ確率場＋ガウシアンノイズによる生成モデル．
+
+    Iterative Conditional Mode, ICM
+    J. Besag, "On the statistical analysis of dirty pictures," J. R. Statist. Soc. B, vol. 48, no. 3, pp. 259--302, 1986.
+
+    EM algorithm on hidden Markov random field
+    Y. Zhang, M. Brady, and S. Smith, "Segmentation of brain MR images through a hidden Markov random field model and the expectation-maximization algorithm", IEEE Transactions on Medical Imaging, vol. 20, no. 1, pp. 45--57, 2001.
     '''
-    def __init__(self, size, L, beta=1.75):
+    def __init__(self, size, num_regions):
         '''
         コンストラクタ
-        @param size: (Rows, Cols) MRFの大きさ
-        @param L ラベル数
-        @param beta ラベル間の結合度行列
+        @param size 画像サイズ
+        @param num_regions 領域数
         '''
-        # 準備
-        self.size = size
-        self.Rows, self.Cols = self.size
-        self.L = L
+        self.size, self.num_regions = size, num_regions
 
-        if isinstance(beta, numbers.Number):
-            self.beta = beta*np.identity(L)
-        else:
-            self.beta = beta
-
-        self.Evens = np.asarray([[(row%2==0 and col%2==0) or (row%2==1 and col%2==1) for col in range(self.Cols)] for row in range(self.Rows)], dtype=bool).ravel() # 偶頂点のboolean index(Rows*Cols, )
-        self.Odds = np.logical_not(self.Evens) # 奇頂点のboolean index(Rows*Cols, )
-        self.A_eo = compressed_adjacency_matrix(self.size) # 偶頂点と奇頂点の隣接行列
-
-    def MAPest(self, ys, mus, sigma2s):
+    def segment(self, img, means, vars, interregion_energy=1.5):
         '''
-        MAP推定関数
-        @param ys 観測値
-        @param mus ラベルごとの観測平均
-        @param sigma2s ラベルごとの観測分散
-        @return MAP推定値と事後確率のタプル
+        最大事後確率推定に基づく領域分割
+        @param img 観測画像
+        @param means 領域ごとの画素値が従う正規分布の平均
+        @param vars 領域ごとの画素値が従う正規分布の分散
+        @param interregion_energy 領域間エネルギー
+        @return 最大事後確率推定値
         '''
-        logL = -(ys.ravel()[:, np.newaxis]-mus)**2/(2*sigma2s) # 対数尤度(Rows*Cols, L)
-        logL_e = logL[self.Evens] # 対数尤度の偶頂点部分
-        logL_o = logL[self.Odds] # 対数尤度の奇頂点部分
+        means, vars = np.array(means), np.array(vars)
 
-        X = logL.argmax(axis=1) # 現在のラベル(Rows*Cols, )
-        Xold_e = X_e = X[self.Evens] # 現在のラベルの偶頂点部分
-        Xold_o = X_o = X[self.Odds] # 現在のラベルの奇頂点部分
+        # Iterated Conditional Modes, ICM
+        nlogcp = (img[:, :, np.newaxis]-means[np.newaxis, np.newaxis, :])**2/(2*vars[np.newaxis, np.newaxis, :]) # Rows * Cols * num_regions
+        discrete_img = (nlogcp).argmin(axis=-1) # Rows * Cols
 
-        maxiter = 100 # 最大反復回数
-
+        maxiter = 100
         for step in range(maxiter):
-            print('step: {0}'.format(step))
-            Xold_e, Xold_o = X_e, X_o
+            # マルコフ確率場の近傍条件つき確率
+            nbr_regions = np.dstack([np.roll(discrete_img, 1, axis=0), np.roll(discrete_img, -1, axis=0), np.roll(discrete_img, 1, axis=1), np.roll(discrete_img, -1, axis=1)]) # Rows * Cols * num_neighbors
+            nbr_regions[0, :, 0] = nbr_regions[-1, :, 1] = nbr_regions[:, 0, 2] = nbr_regions[:, -1, 3] = -1
+            num_nbr_regions = (nbr_regions[:, :, :, np.newaxis]==np.arange(self.num_regions)[np.newaxis, np.newaxis, np.newaxis, :]).sum(axis=2) # Rows * Cols * num_regions
+            MRF_nlogcp = -interregion_energy*num_nbr_regions # Rows * Cols * num_regions
 
-            # 偶頂点の更新
-            nbr_labels = self.A_eo.dot((X_o[:, np.newaxis]==np.arange(self.L)).astype(int)) # 頂点ごとの隣接ラベル数(Rows*Cols/2, L)
-            logjoint_e = logL_e + nbr_labels.dot(self.beta) # 対数同時確率＝対数事後確率＋定数(Rows*Cols/2, L)
-            X_e = logjoint_e.argmax(axis=1)
+            # 観測モデルの確率場条件つき確率
+            obs_nlogcp = (img[:, :, np.newaxis]-means[np.newaxis, np.newaxis, :])**2/(2*vars[np.newaxis, np.newaxis, :]) # Rows * Cols * num_regions
 
-            # 奇頂点の更新
-            nbr_labels = self.A_eo.T.dot((X_e[:, np.newaxis]==np.arange(self.L)).astype(int)) # 頂点ごとの隣接ラベル数(Rows*Cols/2, L)
-            logjoint_o = logL_o + nbr_labels.dot(self.beta) # 対数同時確率＝対数事後確率＋定数(Rows*Cols/2, L)
-            X_o = logjoint_o.argmax(axis=1)
+            discrete_img_candid = (MRF_nlogcp+obs_nlogcp).argmin(axis=-1) # Rows * Cols
 
-            # 停止判定
-            if (X_e != Xold_e).sum() == 0 and (X_o != Xold_o).sum() == 0:
-                # 更新されなくなった時終了
+            if (discrete_img==discrete_img_candid).all():
                 break
 
-        X[self.Evens] = X_e
-        X[self.Odds] = X_o
-        joint = np.zeros_like(logL) # 同時確率(Rows*Cols, L)
-        joint[self.Evens] = np.exp(logjoint_e)
-        joint[self.Odds] = np.exp(logjoint_o)
-        return X.reshape(self.size), (joint/joint.sum(axis=1, keepdims=True)).reshape(self.size + (self.L,))
+            discrete_img = discrete_img_candid
 
-    def joint(self, ys, mus, sigma2s):
+        return discrete_img
+
+    def param_est(self, img, means_init, vars_init, interregion_energy=1.5):
         '''
-        同時確率を返す関数
-        @param ys 観測値
-        @param mus ラベルごとの観測平均
-        @param sigma2s ラベルごとの観測分散
-        @return 同時確率
+        EMアルゴリズムに基づくパラメータ推定
+        @param img 観測画像
+        @param means_init 領域ごとの画素値が従う正規分布の平均
+        @param vars_init 領域ごとの画素値が従う正規分布の分散
+        @param interregion_energy 領域間エネルギー
+        @return 最大事後確率推定値
         '''
-        logL = -(ys.ravel()[:, np.newaxis]-mus)**2/(2*sigma2s) # 対数尤度(Rows*Cols, L)
-        logL_e = logL[self.Evens] # 対数尤度の偶頂点部分
-        logL_o = logL[self.Odds] # 対数尤度の奇頂点部分
+        means, vars = np.array(means_init), np.array(vars_init)
 
-        X = logL.argmax(axis=1) # 現在のラベル(Rows*Cols, )
-        Xold_e = X_e = X[self.Evens] # 現在のラベルの偶頂点部分
-        Xold_o = X_o = X[self.Odds] # 現在のラベルの奇頂点部分
-
-        maxiter = 100 # 最大反復回数
-
+        maxiter = 100
+        tol = 1e-3
         for step in range(maxiter):
-            print('step: {0}'.format(step))
-            Xold_e, Xold_o = X_e, X_o
-
-            # 偶頂点の更新
-            nbr_labels = self.A_eo.dot((X_o[:, np.newaxis]==np.arange(self.L)).astype(int)) # 頂点ごとの隣接ラベル数(Rows*Cols/2, L)
-            logjoint_e = logL_e + nbr_labels.dot(self.beta) # 対数同時確率＝対数事後確率＋定数(Rows*Cols/2, L)
-            X_e = logjoint_e.argmax(axis=1)
-
-            # 奇頂点の更新
-            nbr_labels = self.A_eo.T.dot((X_e[:, np.newaxis]==np.arange(self.L)).astype(int)) # 頂点ごとの隣接ラベル数(Rows*Cols/2, L)
-            logjoint_o = logL_o + nbr_labels.dot(self.beta) # 対数同時確率＝対数事後確率＋定数(Rows*Cols/2, L)
-            X_o = logjoint_o.argmax(axis=1)
-
-            # 停止判定
-            if (X_e != Xold_e).sum() == 0 and (X_o != Xold_o).sum() == 0:
-                # 更新されなくなった時終了
-                break
-
-        retval = np.zeros_like(logL) # 同時確率(Rows*Cols, L)
-        retval[self.Evens] = np.exp(logjoint_e)
-        retval[self.Odds] = np.exp(logjoint_o)
-        return retval
-
-    def EM(self, ys, mus0, sigma2s0):
-        '''
-        EMアルゴリズムで(mu_l, sigma2_l)を推定する関数
-        @param ys 観測値
-        @param mus0 ラベルごとの観測平均の初期値
-        @param sigma2s0 ラベルごとの観測分散の初期値
-        @return パラメータと事後確率のタプル
-        '''
-        mus, sigma2s = mus0, sigma2s0
-
-        maxiter = 100 # 最大反復回数
-        tol = 1e-3 # 許容誤差
-
-        print('STEP: 0')
-        # E-step
-        joint = self.joint(ys, mus, sigma2s) # 同時確率
-
-        # 停止判定
-        F = -np.inf
-        print('F: ', F)
-
-        # M-step
-        post = joint/joint.sum(axis=1, keepdims=True)
-        postsum = post.sum(axis=0)
-        mus = ys.ravel().dot(post)/postsum
-        sigma2s = ((ys.ravel()[:, np.newaxis]-mus)**2*post).sum(axis=0)/postsum
-
-        for step in range(1, maxiter):
-            print('STEP: {0}'.format(step))
-            Fold = F
             # E-step
-            joint = self.joint(ys, mus, sigma2s) # 同時確率
 
-            # 停止判定
-            logjoint = np.zeros_like(joint)
-            logjoint[post!=0] = np.log(joint[post!=0])
-            F = (post*logjoint).sum()
-            print('F: ', F)
-            if F - Fold < 0:
-                # 対数尤度が増大している
-                print('likelihood bigger')
-                break
-            elif F - Fold < tol:
-                # 対数尤度が上がらない
-                print('likelihood maximal')
-                break
+            # マルコフ確率場の近傍条件つき確率
+            discrete_img = self.segment(img, means, vars, interregion_energy)
+            nbr_regions = np.dstack([np.roll(discrete_img, 1, axis=0), np.roll(discrete_img, -1, axis=0), np.roll(discrete_img, 1, axis=1), np.roll(discrete_img, -1, axis=1)]) # Rows * Cols * num_neighbors
+            nbr_regions[0, :, 0] = nbr_regions[-1, :, 1] = nbr_regions[:, 0, 2] = nbr_regions[:, -1, 3] = -1
+            num_nbr_regions = (nbr_regions[:, :, :, np.newaxis]==np.arange(self.num_regions)[np.newaxis, np.newaxis, np.newaxis, :]).sum(axis=2) # Rows * Cols * num_regions
+            MRF_nlogcp = -interregion_energy*num_nbr_regions # Rows * Cols * num_regions
+
+            # 観測モデルの確率場条件つき確率
+            obs_nlogcp = (img[:, :, np.newaxis]-means[np.newaxis, np.newaxis, :])**2/(2*vars[np.newaxis, np.newaxis, :]) # Rows * Cols * num_regions
+
+            improper_cp = np.exp(-MRF_nlogcp-obs_nlogcp)
+            cp = improper_cp/improper_cp.sum(axis=-1, keepdims=True)
 
             # M-step
-            post = joint/joint.sum(axis=1, keepdims=True)
-            postsum = post.sum(axis=0)
-            mus = ys.ravel().dot(post)/postsum
-            sigma2s = ((ys.ravel()[:, np.newaxis]-mus)**2*post).sum(axis=0)/postsum
+            means_candid = (img[:, :, np.newaxis]*cp).sum(axis=(0, 1))/cp.sum(axis=(0, 1))
+            vars_candid = (((img[:, :, np.newaxis]-means[np.newaxis, np.newaxis, :])**2)*cp).sum(axis=(0, 1))/cp.sum(axis=(0, 1))
 
-        post = joint/joint.sum(axis=1, keepdims=True)
-        return (mus, sigma2s), post.reshape(self.size)
+            if (np.abs(means_candid-means)<tol).all() and (np.abs(vars_candid-vars)<tol).all():
+                break
+
+            means, vars = means_candid, vars_candid
+
+        return means, vars
 
 class cHMRF(object):
     '''
