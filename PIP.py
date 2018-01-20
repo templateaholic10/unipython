@@ -142,12 +142,6 @@ class MRF(object):
 class DiscreteMRF_Gaussian_Model(object):
     '''
     離散マルコフ確率場＋ガウシアンノイズによる生成モデル．
-
-    Iterative Conditional Mode, ICM
-    J. Besag, "On the statistical analysis of dirty pictures," J. R. Statist. Soc. B, vol. 48, no. 3, pp. 259--302, 1986.
-
-    EM algorithm on hidden Markov random field
-    Y. Zhang, M. Brady, and S. Smith, "Segmentation of brain MR images through a hidden Markov random field model and the expectation-maximization algorithm", IEEE Transactions on Medical Imaging, vol. 20, no. 1, pp. 45--57, 2001.
     '''
     def __init__(self, size, num_regions):
         '''
@@ -157,13 +151,15 @@ class DiscreteMRF_Gaussian_Model(object):
         '''
         self.size, self.num_regions = size, num_regions
 
-    def segment(self, img, means, vars, interregion_energy=1.5):
+    def segment_icm(self, img, means, vars, interregion_energy=1.5):
         '''
-        最大事後確率推定に基づく領域分割
+        最大事後確率推定に基づく領域分割．ICMで最適解を求める
+        Iterative Conditional Mode, ICM
+        J. Besag, "On the statistical analysis of dirty pictures," J. R. Statist. Soc. B, vol. 48, no. 3, pp. 259--302, 1986.
         @param img 観測画像
         @param means 領域ごとの画素値が従う正規分布の平均
         @param vars 領域ごとの画素値が従う正規分布の分散
-        @param interregion_energy 領域間エネルギー
+        @param interregion_energy 領域間エネルギー（[Besag86]は1.5を推奨）
         @return 最大事後確率推定値
         '''
         means, vars = np.array(means), np.array(vars)
@@ -192,16 +188,43 @@ class DiscreteMRF_Gaussian_Model(object):
 
         return discrete_img
 
-    def param_est(self, img, means_init, vars_init, interregion_energy=1.5):
+    def segment_gc(self, img, means, vars, interregion_energy=1.5):
         '''
-        EMアルゴリズムに基づくパラメータ推定
+        最大事後確率推定に基づく領域分割．グラフカットで大域的最適解を求める
+        @param img 観測画像
+        @param means 領域ごとの画素値が従う正規分布の平均
+        @param vars 領域ごとの画素値が従う正規分布の分散
+        @param interregion_energy 領域間エネルギー（[Besag86]は1.5を推奨）
+        @return 最大事後確率推定値
+        '''
+        assert(self.num_regions==2)
+
+        # グラフの構築
+        dgraph = nx.generators.lattice.grid_2d_graph(*self.size).to_directed()
+        nx.set_edge_attributes(dgraph, interregion_energy, 'weight')
+        dgraph.add_weighted_edges_from([((-1, -1), (row, col), (img[row, col]-means[1])**2/(2*vars[1])) for row in range(self.size[0]) for col in range(self.size[1])])
+        dgraph.add_weighted_edges_from([((row, col), self.size, (img[row, col]-means[0])**2/(2*vars[0])) for row in range(self.size[0]) for col in range(self.size[1])])
+
+        # min-cut
+        _, partition = nx.algorithms.flow.minimum_cut(dgraph, (-1, -1), self.size, capacity='weight')
+        unreachable = sorted(partition[1]-{self.size})
+        discrete_img = np.zeros(self.size, dtype='uint8')
+        discrete_img[[row for row, col in unreachable], [col for row, col in unreachable]] = 1
+
+        return discrete_img
+
+    def param_est_icm(self, img, means_init, vars_init, interregion_energy=1.5):
+        '''
+        EMアルゴリズムに基づくパラメータ推定．ICMで事後分布を求める
+        EM algorithm on hidden Markov random field
+        Y. Zhang, M. Brady, and S. Smith, "Segmentation of brain MR images through a hidden Markov random field model and the expectation-maximization algorithm", IEEE Transactions on Medical Imaging, vol. 20, no. 1, pp. 45--57, 2001.
         @param img 観測画像
         @param means_init 領域ごとの画素値が従う正規分布の平均
         @param vars_init 領域ごとの画素値が従う正規分布の分散
-        @param interregion_energy 領域間エネルギー
+        @param interregion_energy 領域間エネルギー（[Besag86]は1.5を推奨）
         @return 最大事後確率推定値
         '''
-        means, vars = np.array(means_init), np.array(vars_init)
+        self.means, self.vars = np.array(means_init), np.array(vars_init)
 
         maxiter = 100
         tol = 1e-3
@@ -209,7 +232,7 @@ class DiscreteMRF_Gaussian_Model(object):
             # E-step
 
             # マルコフ確率場の近傍条件つき確率
-            discrete_img = self.segment(img, means, vars, interregion_energy)
+            discrete_img = self.segment_icm(img, means, vars, interregion_energy)
             nbr_regions = np.dstack([np.roll(discrete_img, 1, axis=0), np.roll(discrete_img, -1, axis=0), np.roll(discrete_img, 1, axis=1), np.roll(discrete_img, -1, axis=1)]) # Rows * Cols * num_neighbors
             nbr_regions[0, :, 0] = nbr_regions[-1, :, 1] = nbr_regions[:, 0, 2] = nbr_regions[:, -1, 3] = -1
             num_nbr_regions = (nbr_regions[:, :, :, np.newaxis]==np.arange(self.num_regions)[np.newaxis, np.newaxis, np.newaxis, :]).sum(axis=2) # Rows * Cols * num_regions
@@ -228,9 +251,68 @@ class DiscreteMRF_Gaussian_Model(object):
             if (np.abs(means_candid-means)<tol).all() and (np.abs(vars_candid-vars)<tol).all():
                 break
 
-            means, vars = means_candid, vars_candid
+            self.means, self.vars = means_candid, vars_candid
 
-        return means, vars
+        return self.means, self.vars
+
+    def param_est_gc(self, img, means_init, vars_init, interregion_energy=1.5):
+        '''
+        EMアルゴリズムに基づくパラメータ推定．グラフカットで事後分布を求める
+        EM algorithm on hidden Markov random field
+        Y. Zhang, M. Brady, and S. Smith, "Segmentation of brain MR images through a hidden Markov random field model and the expectation-maximization algorithm", IEEE Transactions on Medical Imaging, vol. 20, no. 1, pp. 45--57, 2001.
+        @param img 観測画像
+        @param means_init 領域ごとの画素値が従う正規分布の平均
+        @param vars_init 領域ごとの画素値が従う正規分布の分散
+        @param interregion_energy 領域間エネルギー（[Besag86]は1.5を推奨）
+        @return 最大事後確率推定値
+        '''
+        assert(self.num_regions==2)
+        self.means, self.vars = np.array(means_init), np.array(vars_init)
+
+        # グラフの構築
+        dgraph = nx.generators.lattice.grid_2d_graph(*self.size).to_directed()
+        nx.set_edge_attributes(dgraph, interregion_energy, 'weight')
+        dgraph.add_edges_from([((-1, -1), (row, col)) for row in range(self.size[0]) for col in range(self.size[1])])
+        dgraph.add_edges_from([((row, col), self.size) for row in range(self.size[0]) for col in range(self.size[1])])
+
+        maxiter = 1000
+        tol = 5e-4
+        for step in range(maxiter):
+            print('[STEP:{step}] means: {means}, vars: {vars}'.format(step=step, means=self.means, vars=self.vars))
+            # E-step
+
+            # 辺重みの更新
+            nx.set_edge_attributes(dgraph, {((-1, -1), (row, col)): {'weight': (img[row, col]-self.means[1])**2/(2*self.vars[1])} for row in range(self.size[0]) for col in range(self.size[1])})
+            nx.set_edge_attributes(dgraph, {((row, col), self.size): {'weight': (img[row, col]-self.means[0])**2/(2*self.vars[0])} for row in range(self.size[0]) for col in range(self.size[1])})
+
+            # min-cut
+            _, partition = nx.algorithms.flow.minimum_cut(dgraph, (-1, -1), self.size, capacity='weight')
+            unreachable = sorted(partition[1]-{self.size})
+            discrete_img = np.zeros(self.size, dtype='uint8')
+            discrete_img[[row for row, col in unreachable], [col for row, col in unreachable]] = 1
+
+            # マルコフ確率場の近傍条件つき確率
+            nbr_regions = np.dstack([np.roll(discrete_img, 1, axis=0), np.roll(discrete_img, -1, axis=0), np.roll(discrete_img, 1, axis=1), np.roll(discrete_img, -1, axis=1)]) # Rows * Cols * num_neighbors
+            nbr_regions[0, :, 0] = nbr_regions[-1, :, 1] = nbr_regions[:, 0, 2] = nbr_regions[:, -1, 3] = -1
+            num_nbr_regions = (nbr_regions[:, :, :, np.newaxis]==np.arange(self.num_regions)[np.newaxis, np.newaxis, np.newaxis, :]).sum(axis=2) # Rows * Cols * num_regions
+            MRF_nlogcp = -interregion_energy*num_nbr_regions # Rows * Cols * num_regions
+
+            # 観測モデルの確率場条件つき確率
+            obs_nlogcp = (img[:, :, np.newaxis]-self.means[np.newaxis, np.newaxis, :])**2/(2*self.vars[np.newaxis, np.newaxis, :]) # Rows * Cols * num_regions
+
+            improper_cp = np.exp(-MRF_nlogcp-obs_nlogcp)
+            cp = improper_cp/improper_cp.sum(axis=-1, keepdims=True)
+
+            # M-step
+            means_candid = (img[:, :, np.newaxis]*cp).sum(axis=(0, 1))/cp.sum(axis=(0, 1))
+            vars_candid = (((img[:, :, np.newaxis]-self.means[np.newaxis, np.newaxis, :])**2)*cp).sum(axis=(0, 1))/cp.sum(axis=(0, 1))
+
+            if (np.abs(means_candid-self.means)/np.abs(self.means)<tol).all() and (np.abs(vars_candid-self.vars)/np.abs(self.vars)<tol).all():
+                break
+
+            self.means, self.vars = means_candid, vars_candid
+
+        return self.means, self.vars
 
 class cHMRF(object):
     '''
